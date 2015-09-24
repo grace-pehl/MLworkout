@@ -1,3 +1,4 @@
+# VIEW HTML OF ANALYSIS http://grace-pehl.github.io/MLworkout/
 # Can Your Fitbit Tell When You're Slacking?
 # Classification of Weightlifting Technique from Personal Activity Trackers
 ### Grace Pehl, PhD
