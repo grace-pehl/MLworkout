@@ -16,13 +16,13 @@ The dataset consists of 160 features from accelerometers on the arm, forearm, be
 
 The complete dataset is split into a training dataset with 13737 observations, a testing dataset with 5885 observations, and a validation set with 20 observations. In the training set, there are no complete cases (observations with no missing values for any feature). Removing 100 features with more than 80% missing values and 7 identification features, leaves 52 features and 13737 out of 13737 complete cases.  The distribution of classes in the training set is: 
 
-     Class   Technique        Counts   Proportion 
----  ------  ---------------  -------  -----------
-A    A       Proper Form      3906     0.28       
-B    B       Elbows Forward   2658     0.19       
-C    C       Halfway Up       2396     0.17       
-D    D       Halfway Down     2252     0.16       
-E    E       Hips Forward     2525     0.18       
+ Class   Technique        Counts   Proportion 
+ ------  ---------------  -------  -----------
+   A       Proper Form      3906     0.28       
+   B       Elbows Forward   2658     0.19       
+   C       Halfway Up       2396     0.17       
+   D       Halfway Down     2252     0.16       
+   E       Hips Forward     2525     0.18       
 
 ### Principal Component Analysis  
 In order to reduce the dimensionality of the dataset (the number of features) and to speed computation time, I perform a principal component analysis on the training set.  The preProcess function will center and scale the features prior to PCA and principal components will be calculated to retain 95% of the variance within the data.
