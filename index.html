@@ -68,7 +68,7 @@
 
 <p>I use random forest with 10-fold cross validation to select the most important features for the model.  In each fold, I retain the top 80% of features.</p>
 
-<p><img src="analysis_files/figure-html/SelectingFeaturesPlot-1.png" alt=""> </p>
+<p><img src="https://github.com/grace-pehl/MLworkout/blob/master/analysis_files/figure-html/SelectingFeaturesPlot-1.png" alt=""> </p>
 
 <p>The cross validation results show that there is very little difference between using all 26 principal components and using only 11.  With 11 features, we would expect an out-of-sample error rate around 5%.  I use the the top 11 principal components (based on mean Gini decrease) to fit a random forest algorithm.</p>
 
