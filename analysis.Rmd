@@ -1,0 +1,159 @@
+---
+title: "Classification of Weightlifting Technique from Personal Activity Trackers"
+author: "Grace Pehl, PhD"
+date: "September 24, 2015"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+### Objective  
+Build a machine learning algorithm to predict activity quality from personal activity monitors.
+
+Course project for Practical Machine Learning, part of the Johns Hopkins Data Science Specialization
+
+#### Data citation:  
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+### Introduction
+
+```{r LoadData, echo=FALSE, results='hide'}
+trainingURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingfile = "pml-training.csv"
+testingfile = "pml-testing.csv"
+
+### check if data files already exist
+if (!file.exists(trainingfile)) {
+    download.file(trainingURL, trainingfile, mode = "w")
+}
+if (!file.exists(testingfile)) {
+    download.file(testingURL, testingfile, mode = "w")
+}
+df <- read.csv(trainingfile, na.strings = c('NA', '#DIV/0!', ''))
+validation <- read.csv(testingfile, na.strings = c('NA', '#DIV/0!', ''))
+validation_id <- validation$problem_id
+# divide training set into training and testing sets
+suppressMessages(library(caret))
+inTrain <- createDataPartition(y = df$classe, p = 0.7, list = FALSE)
+training <- df[inTrain, ]
+training_labels <- training$classe
+testing <- df[-inTrain, ]
+testing_labels <- testing$classe
+```
+
+The dataset consists of `r ncol(training)` features from accelerometers on the arm, forearm, belt, and dumbbell of 6 participants who performed a series of weightlifting exercises both correctly and incorrectly. The subjects performed a set of 10 repetitions of unilateral dumbbell biceps curls in 5 different ways.  The class A set was done with proper technique. The class B set was done throwing the elbows forward; class C, lifting the dumbbell only halfway; class D, lowering the dumbbell only halfway; and class E, throwing the hips forward. 
+
+```{r MissingValues, echo=FALSE}
+# remove columns with more than 80% NA values
+badfeatures <- training[ , colSums(is.na(training)) >= 0.8 * nrow(training)]
+validation <- validation[ , colSums(is.na(training)) < 0.8 * nrow(training)]
+testing <- testing[ , colSums(is.na(training)) < 0.8 * nrow(training)]
+training <- training[ , colSums(is.na(training)) < 0.8 * nrow(training)]
+# remove identification columns
+validation <- validation[ , 8:ncol(training)]
+testing <- testing[ , 8:ncol(training)]
+training <- training[ , 8:ncol(training)]
+
+# what is the distribution of classes
+Class = c("A", 'B', 'C', 'D', 'E')
+Technique <- c(A = 'Proper Form', B = 'Elbows Forward', C = 'Halfway Up',
+               D = 'Halfway Down', E = 'Hips Forward')
+Counts <- table(training$classe)
+t2 <- prop.table(Counts)
+Proportion <- round(t2, 2)
+class_table <- cbind(Class, Technique, Counts, Proportion)
+```
+
+The complete dataset is split into a training dataset with `r nrow(training)` observations, a testing dataset with `r nrow(testing)` observations, and a validation set with 20 observations. In the training set, there are no complete cases (observations with no missing values for any feature). Removing `r ncol(badfeatures)` features with more than 80% missing values and 7 identification features, leaves `r ncol(training) - 1` features and `r sum(complete.cases(training))` out of `r nrow(training)` complete cases.  The distribution of classes in the training set is: 
+```{r ClassDistribution, echo=FALSE} 
+suppressMessages(library(knitr))
+kable(class_table)
+```
+
+### Principal Component Analysis  
+In order to reduce the dimensionality of the dataset (the number of features) and to speed computation time, I perform a principal component analysis on the training set.  The preProcess function will center and scale the features prior to PCA and principal components will be calculated to retain 95% of the variance within the data.
+
+```{r PCA, cache=TRUE}
+# Perform Principal Component Analysis on the training set
+preProc <- preProcess(training[ , -53], method = "pca")
+# Apply the transform to all 3 datasets
+trainPC <- predict(preProc, training[ , -53])
+testPC  <- predict(preProc, testing[ , -53])
+validationPC <- predict(preProc, validation[ , -53])
+```
+
+PCA reduces the number of features from `r ncol(training) - 1` to `r ncol(trainPC)`.  Using the same components, I also transform the testing and validation sets.  
+
+```{r RFCV, cache=TRUE}
+suppressMessages(library(randomForest))
+modFit <- rfcv(trainPC, training_labels, step = 0.8, cv.fold = 10)
+```
+
+### Estimating Out of Sample Error with Cross Validation  
+I use random forest with 10-fold cross validation to select the most important features for the model.  In each fold, I retain the top 80% of features.
+
+```{r SelectingFeaturesPlot, echo=FALSE}
+suppressMessages(library(ggplot2))
+rfcv_results <- as.data.frame(cbind('Features' = modFit$n.var, 'Error' = modFit$error.cv))
+g <- ggplot(aes(x = Features, y = Error, label = Features), data = rfcv_results)
+g <- g + geom_line() + geom_point() + ylab('Error Rate')
+g <- g + xlab('Number of Principal Components Used')
+g <- g + ggtitle('Results of Random Forest Using Principal Components')
+g <- g + geom_text(vjust = -0.5, hjust = -0.5)
+selectingFeaturesPlot <- g
+selectingFeaturesPlot
+```
+
+The cross validation results show that there is very little difference between using all 26 principal components and using only 11.  With 11 features, we would expect an out-of-sample error rate around 5%.  I use the the top 11 principal components (based on mean Gini decrease) to fit a random forest algorithm.
+
+```{r Algorithm, echo=FALSE, cache=TRUE}
+PCtraining <- cbind(trainPC, 'classe' = training_labels)
+mod2Fit <- randomForest(classe ~ ., data = PCtraining, ntree = 50,
+                        importance = TRUE)
+PCimportances <- as.data.frame(importance(mod2Fit))
+pred <- predict(mod2Fit, PCtraining)
+insample <- sum(pred == PCtraining$classe)/nrow(PCtraining)
+# perfect fit to training data
+outofsample <- sum(predict(mod2Fit, testPC) == testing_labels)/nrow(testPC)
+# out of sample error 96.6%
+# select top 11 principal components
+PCimportances <- PCimportances[with(PCimportances, order(-MeanDecreaseGini)), ]
+selectedPCs <- rownames(PCimportances)[1:11]
+```
+```{r FitModel, cache=TRUE}
+trainPC2 <- trainPC[ , selectedPCs]
+trainPC2 <- cbind(trainPC2, 'classe' = training_labels)
+modelFit <- randomForest(classe ~ ., data = trainPC2, ntree = 50)
+```
+
+The out of sample error can now be estimated using the testing set that has not been used in the model selection or fitting.
+
+```{r PreprocessTesting}
+# In Sample Error
+pred_training <- predict(modelFit, newdata = trainPC)
+confusionMatrix(pred_training, training_labels)
+# Out of Sample Error
+pred_testing <- predict(modelFit, newdata = testPC)
+confusionMatrix(pred_testing, testing_labels)
+# Validation set
+pred_validation <- predict(modelFit, newdata = validationPC)
+answers <- as.character(pred_validation)
+```
+The out of sample accuracy is 94.7% which gives an error rate very close to our expected error rate of 5%.  Finally, the validation set is run through the model and the predictions will be submitted for validation.
+
+The success of this classification algorithm demonstrates that it is possible to use personal activity monitors to document not only "how much" a person performed an exercise activity, but also "how well" they did it.
+
+```{r Validation, echo=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for (i in 1:n) {
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file = filename, quote = FALSE, row.names = FALSE,
+                col.names = FALSE)
+  }
+}
+pml_write_files(answers)
+```
+
+
