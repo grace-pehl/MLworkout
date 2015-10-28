@@ -1,0 +1,170 @@
+Grace Pehl, Ph.D.
+========================================================
+author: Customer Data and Analytics Team
+date: October 29, 2015
+
+Classification of Weightlifting Technique from Personal Activity Trackers
+========================================================
+
+### Objective
+Build a machine learning algorithm to predict activity quality from personal activity monitors.
+
+Course project for Practical Machine Learning, part of the Johns Hopkins Data Science Specialization taught by Jeff Leek
+
+#### Data citation:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Experimental Setup
+========================================================
+
+![Experimental Design](weightlifting-1.png)
+10 reps unilateral dumbbell biceps curls
+
+******
+
+1. A - Proper technique
+2. B - Throwing the elbows forward
+3. C - Half lifting the dumbbell
+4. D - Half lowering the dumbbell
+5. E - Throwing the hips forward
+
+Reading in the Data
+========================================================
+```{r echo=FALSE, results='hide'}
+trainingURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingURL = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingfile = "pml-training.csv"
+testingfile = "pml-testing.csv"
+```
+```{r results='hide'}
+### download data, if necessary
+if (!file.exists(trainingfile)) {
+    download.file(trainingURL, trainingfile, mode = "w")
+}
+if (!file.exists(testingfile)) {
+    download.file(testingURL, testingfile, mode = "w")
+}
+### read in files
+df <- read.csv(trainingfile, na.strings = c('NA', '#DIV/0!', ''))
+validation <- read.csv(testingfile, na.strings = c('NA', '#DIV/0!', ''))
+validation_id <- validation$problem_id
+```
+160 Features, 19622 Observations
+
+Divide Training Data
+=============================================================
+```{r results='hide'}
+suppressMessages(library(caret))
+inTrain <- createDataPartition(y = df$classe, p = 0.7, list = FALSE)
+training <- df[inTrain, ]
+training_labels <- training$classe
+testing <- df[-inTrain, ]
+testing_labels <- testing$classe
+```
+
+Data Cleaning
+=========================================================
+```{r MissingValues}
+# remove columns with more than 80% NA values (100 features)
+badfeatures <- training[ , colSums(is.na(training)) >= 0.8 * nrow(training)]
+validation <- validation[ , colSums(is.na(training)) < 0.8 * nrow(training)]
+testing <- testing[ , colSums(is.na(training)) < 0.8 * nrow(training)]
+training <- training[ , colSums(is.na(training)) < 0.8 * nrow(training)]
+# remove identification columns (7 features)
+validation <- validation[ , 8:ncol(training)]
+testing <- testing[ , 8:ncol(training)]
+training <- training[ , 8:ncol(training)]
+```
+
+Distribution of Classes
+================================================================
+```{r echo=FALSE}
+Class = c("A", 'B', 'C', 'D', 'E')
+Technique <- c(A = 'Proper Form', B = 'Elbows Forward', C = 'Halfway Up',
+               D = 'Halfway Down', E = 'Hips Forward')
+Counts <- table(training$classe)
+t2 <- prop.table(Counts)
+Proportion <- round(t2, 2)
+class_table <- cbind(Technique, Counts, Proportion)
+```
+```{r}
+suppressMessages(library(knitr))
+kable(class_table)
+```
+
+PCA - Retain 95% of Variance
+================================================================
+```{r PCA, cache=TRUE}
+# Perform Principal Component Analysis on the training set
+preProc <- preProcess(training[ , -53], method = "pca")
+# Apply the transform to all 3 datasets
+trainPC <- predict(preProc, training[ , -53])
+testPC  <- predict(preProc, testing[ , -53])
+validationPC <- predict(preProc, validation[ , -53])
+```
+
+Feature Selection
+=================================================================
+```{r RFCV, cache=TRUE}
+# Use Random Forest with cross validation removing 20% of features
+suppressMessages(library(randomForest))
+modFit <- rfcv(trainPC, training_labels, step = 0.8, cv.fold = 10)
+```
+```{r SelectingFeaturesPlot, echo=FALSE}
+suppressMessages(library(ggplot2))
+rfcv_results <- as.data.frame(cbind('Features' = modFit$n.var, 'Error' = modFit$error.cv))
+g <- ggplot(aes(x = Features, y = Error, label = Features), data = rfcv_results)
+g <- g + geom_line() + geom_point() + ylab('Error Rate')
+g <- g + xlab('Number of Principal Components Used')
+g <- g + ggtitle('Results of Random Forest Using Principal Components')
+g <- g + geom_text(vjust = -0.5, hjust = -0.5)
+selectingFeaturesPlot <- g
+selectingFeaturesPlot
+```
+
+Identify Top 11 Principal Components
+===============================================================
+```{r}
+PCtraining <- cbind(trainPC, 'classe' = training_labels)
+mod2Fit <- randomForest(classe ~ ., data = PCtraining, ntree = 50,
+                        importance = TRUE)
+PCimportances <- as.data.frame(importance(mod2Fit))
+pred <- predict(mod2Fit, PCtraining)
+insample <- sum(pred == PCtraining$classe)/nrow(PCtraining)
+# perfect fit to training data
+outofsample <- sum(predict(mod2Fit, testPC) == testing_labels)/nrow(testPC)
+# out of sample error 96.6%
+# select top 11 principal components
+PCimportances <- PCimportances[with(PCimportances, order(-MeanDecreaseGini)), ]
+selectedPCs <- rownames(PCimportances)[1:11]
+```
+
+Train the Algorithm
+===============================================================
+```{r FitModel, cache=TRUE}
+trainPC2 <- trainPC[ , selectedPCs]
+trainPC2 <- cbind(trainPC2, 'classe' = training_labels)
+modelFit <- randomForest(classe ~ ., data = trainPC2, ntree = 50)
+```
+
+In Sample Error
+================================================
+```{r}
+# Training Error
+pred_training <- predict(modelFit, newdata = trainPC)
+confusionMatrix(pred_training, training_labels)
+```
+
+Out of Sample Error
+==================================================
+```{r}
+# Testing Error
+pred_testing <- predict(modelFit, newdata = testPC)
+confusionMatrix(pred_testing, testing_labels)
+```
+
+Closing Slide
+============================================
+title: false
+
+![](kids.jpg)
